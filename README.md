@@ -8,7 +8,7 @@ This tool is perfect for musicians, visual artists, or anyone looking to create 
 
 ## User Interface Preview
 
-Here's a look at the main interface of the Audio Reactive Video Animator:
+This is a look at the main interface of the Audio Reactive Video Animator:
 
 ![Screenshot of the Audio Reactive Video Animator UI](examples/ui_screenshot.png)
 
