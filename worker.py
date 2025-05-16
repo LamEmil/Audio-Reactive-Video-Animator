@@ -4,7 +4,7 @@ from PIL import Image
 import os
 import imageio # For reading video input
 import cv2 # For writing video output
-import tempfile
+import tempfile # For temporary file handling
 import shutil
 import time
 import subprocess # For ffmpeg
@@ -65,7 +65,7 @@ class OpticalFlowZoomerWorker(QThread):
             return
 
 
-        temp_video_file_path = None # Path to the temporary video file
+        temp_silent_video_path = None # Renamed from temp_video_file_path to avoid shadowing
         video_writer = None # cv2.VideoWriter object
 
         try:
@@ -130,7 +130,7 @@ class OpticalFlowZoomerWorker(QThread):
 
             # Create a temporary file for the silent video
             with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmpfile:
-                temp_video_file_path = tmpfile.name
+                temp_silent_video_path = tmpfile.name
             
             self.progress_update.emit("Writing silent video frames...", 90)
             
@@ -139,67 +139,91 @@ class OpticalFlowZoomerWorker(QThread):
             
             user_fps = self.params.get("fps", 24) # Get FPS from params
             fourcc = cv2.VideoWriter_fourcc(*'mp4v') # Codec for .mp4
-            video_writer = cv2.VideoWriter(temp_video_file_path, fourcc, user_fps, (width, height))
+            video_writer = cv2.VideoWriter(temp_silent_video_path, fourcc, user_fps, (width, height))
 
             if not video_writer.isOpened():
-                self.finished.emit("", False, f"Error: Could not open temporary video writer for '{temp_video_file_path}'")
+                self.finished.emit("", False, f"Error: Could not open temporary video writer for '{temp_silent_video_path}'")
                 return
 
             for i, frame_pil_rgba in enumerate(output_pil_frames_rgba):
                 frame_rgb_np = np.array(frame_pil_rgba.convert("RGB"))
                 frame_bgr_np = cv2.cvtColor(frame_rgb_np, cv2.COLOR_RGB2BGR) # OpenCV uses BGR
                 video_writer.write(frame_bgr_np)
-                # self.progress_update.emit(f"Writing frame {i+1}/{len(output_pil_frames_rgba)}", 90 + int(5 * (i+1)/len(output_pil_frames_rgba)))
-
 
             video_writer.release()
             video_writer = None # Ensure it's released
             self.progress_update.emit("Silent video written.", 95)
 
-            # Mux audio using ffmpeg if audio was provided
             output_final_video_path = self.output_video_path # Where the final video will be saved
 
-            if self.params.get("audio_filepath") and os.path.exists(self.params["audio_filepath"]):
-                audio_input_path = self.params["audio_filepath"]
-                self.progress_update.emit("Muxing audio with ffmpeg...", 98)
-                
-                # Ensure output directory exists for the final video
-                output_dir = os.path.dirname(output_final_video_path)
-                if output_dir and not os.path.exists(output_dir):
-                    os.makedirs(output_dir, exist_ok=True)
-
+            def ffmpeg_encode_video(input_video, output_video, audio_path=None, ffmpeg_path="ffmpeg"):
                 cmd = [
-                    self.ffmpeg_custom_path, # User specified or 'ffmpeg'
-                    "-y", # Overwrite output files without asking
-                    "-i", temp_video_file_path,   # Input silent video
-                    "-i", audio_input_path,       # Input audio
-                    "-c:v", "copy",               # Copy video stream without re-encoding
-                    "-c:a", "aac",                # Re-encode audio to AAC (common for MP4)
-                    "-shortest",                  # Finish encoding when the shortest input stream ends
-                    "-map", "0:v:0",              # Map video from first input
-                    "-map", "1:a:0",              # Map audio from second input
-                    "-loglevel", "error",         # Only show errors from ffmpeg
-                    output_final_video_path
+                    ffmpeg_path,
+                    "-y",
+                    "-i", input_video,
+                ]
+                if audio_path:
+                    cmd += ["-i", audio_path]
+                cmd += [
+                    "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p",
+                    "-preset", "veryfast",
+                    "-crf", "23",
+                ]
+                if audio_path:
+                    cmd += [
+                        "-c:a", "aac",
+                        "-b:a", "192k",
+                        "-shortest",
+                        "-map", "0:v:0",
+                        "-map", "1:a:0",
+                    ]
+                else:
+                    cmd += ["-an"] # No audio
+                cmd += [
+                    "-movflags", "+faststart",
+                    "-loglevel", "error",
+                    output_video
                 ]
                 try:
                     process = subprocess.run(cmd, check=True, capture_output=True, text=True)
-                    self.progress_update.emit("Audio added. Video complete!", 100)
-                    self.finished.emit(output_final_video_path, True, "") # Success
+                    return True, ""
                 except subprocess.CalledProcessError as ffmpeg_err:
-                    # FFmpeg failed, copy the silent video as fallback
-                    shutil.copy(temp_video_file_path, output_final_video_path)
-                    error_details = f"FFmpeg audio mux failed (code {ffmpeg_err.returncode}). Stderr: {ffmpeg_err.stderr}"
-                    self.progress_update.emit("FFmpeg audio mux failed. Silent video saved.", 100)
-                    self.finished.emit(output_final_video_path, True, f"WARNING: Audio could not be added. Video is silent.\nDetails: {ffmpeg_err.stderr[:250]}...")
+                    return False, f"FFmpeg encode failed (code {ffmpeg_err.returncode}). Stderr: {ffmpeg_err.stderr}"
                 except FileNotFoundError:
-                    # ffmpeg executable not found
-                    shutil.copy(temp_video_file_path, output_final_video_path)
-                    self.progress_update.emit("FFmpeg not found. Silent video saved.", 100)
-                    self.finished.emit(output_final_video_path, True, "WARNING: ffmpeg executable not found. Video is silent. Please ensure ffmpeg is in your system PATH or specify its location in the GUI.")
-            else: # No audio file was processed, so just copy the silent video
-                shutil.copy(temp_video_file_path, output_final_video_path)
-                self.progress_update.emit("Video (no audio processing) complete!", 100)
-                self.finished.emit(output_final_video_path, True, "Video generated (no audio was provided or processed).")
+                    return False, "ffmpeg executable not found for encoding."
+
+            if self.params.get("audio_filepath") and os.path.exists(self.params["audio_filepath"]):
+                audio_input_path = self.params["audio_filepath"]
+                self.progress_update.emit("Muxing and encoding video/audio with ffmpeg...", 98)
+                output_dir = os.path.dirname(output_final_video_path)
+                if output_dir and not os.path.exists(output_dir):
+                    os.makedirs(output_dir, exist_ok=True)
+                success, ffmpeg_err = ffmpeg_encode_video(
+                    temp_silent_video_path, output_final_video_path, audio_input_path, self.ffmpeg_custom_path
+                )
+                if success:
+                    self.progress_update.emit("Audio added. Video web-optimized!", 100)
+                    self.finished.emit(output_final_video_path, True, "")
+                else:
+                    shutil.copy(temp_silent_video_path, output_final_video_path)
+                    self.progress_update.emit("FFmpeg mux/encode failed. Silent video saved.", 100)
+                    self.finished.emit(output_final_video_path, True, f"WARNING: Audio could not be added or video encoding failed. Video is silent or non-standard.\nDetails: {ffmpeg_err[:250]}...")
+            else:
+                self.progress_update.emit("Encoding video for web compatibility...", 98)
+                output_dir = os.path.dirname(output_final_video_path)
+                if output_dir and not os.path.exists(output_dir):
+                    os.makedirs(output_dir, exist_ok=True)
+                success, ffmpeg_err = ffmpeg_encode_video(
+                    temp_silent_video_path, output_final_video_path, None, self.ffmpeg_custom_path
+                )
+                if success:
+                    self.progress_update.emit("Video (no audio) web-optimized!", 100)
+                    self.finished.emit(output_final_video_path, True, "Video generated (no audio was provided or processed).")
+                else:
+                    shutil.copy(temp_silent_video_path, output_final_video_path)
+                    self.progress_update.emit("FFmpeg encode failed. Silent video saved.", 100)
+                    self.finished.emit(output_final_video_path, True, f"WARNING: Video encoding failed. Video may be non-standard.\nDetails: {ffmpeg_err[:250]}...")
 
         except ImportError as ie: # Catch import errors for modules not found during runtime
             import traceback
@@ -211,10 +235,10 @@ class OpticalFlowZoomerWorker(QThread):
             error_msg = f"General error during video processing: {e}\nTraceback: {traceback.format_exc()}"
             self.progress_update.emit(f"Error: {e}", 0)
             # Try to save silent fallback if it exists
-            if temp_video_file_path and os.path.exists(temp_video_file_path):
+            if temp_silent_video_path and os.path.exists(temp_silent_video_path):
                 try:
                     fallback_path = self.output_video_path # User's chosen output path
-                    shutil.copy(temp_video_file_path, fallback_path)
+                    shutil.copy(temp_silent_video_path, fallback_path)
                     self.finished.emit(fallback_path, False, f"{error_msg}\n\nA silent version of the video may have been saved to the output path as a fallback.")
                 except Exception as copy_err:
                     self.finished.emit("", False, f"{error_msg}\n\nFailed to save silent fallback video: {copy_err}")
@@ -225,12 +249,12 @@ class OpticalFlowZoomerWorker(QThread):
                 video_writer.release() # Ensure writer is closed
             
             # Clean up the temporary silent video file
-            if temp_video_file_path and os.path.exists(temp_video_file_path):
+            if temp_silent_video_path and os.path.exists(temp_silent_video_path):
                 try:
                     # Add a small delay before removing, sometimes helpful on Windows
                     time.sleep(0.5) 
-                    os.remove(temp_video_file_path)
+                    os.remove(temp_silent_video_path)
                 except PermissionError as e_perm:
-                     print(f"Warning: Could not delete temporary video file {temp_video_file_path} due to PermissionError: {e_perm}. It might still be in use.")
+                     print(f"Warning: Could not delete temporary video file {temp_silent_video_path} due to PermissionError: {e_perm}. It might still be in use.")
                 except Exception as e_del:
-                    print(f"Warning: Could not delete temporary video file {temp_video_file_path}: {e_del}")
+                    print(f"Warning: Could not delete temporary video file {temp_silent_video_path}: {e_del}")

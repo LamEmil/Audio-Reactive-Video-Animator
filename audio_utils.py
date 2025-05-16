@@ -3,18 +3,18 @@
 
 import numpy as np
 import math
-import os # For potential path operations if ever needed, though not directly used by functions here
+import os 
 
 # --- Librosa Import and Availability Check ---
 LIBROSA_AVAILABLE = False
 LIBROSA_ERROR_MESSAGE = ""
-librosa = None # Global variable to hold the librosa module if successfully imported
+librosa = None 
 
-MOVIEPY_ERROR_MESSAGE_INIT = "" # Placeholder for moviepy error, often checked alongside audio libs
+MOVIEPY_ERROR_MESSAGE_INIT = "" 
 
 try:
     import librosa as lr_module
-    librosa = lr_module # Assign to the global variable
+    librosa = lr_module 
     LIBROSA_AVAILABLE = True
     print("audio_utils.py: Librosa imported successfully.")
 except ImportError as e:
@@ -286,13 +286,9 @@ def get_peak_envelope_multiplier_zoomer(frames_elapsed_in_phase, peak_hold_frame
             else: multiplier = 1.0 - decay_phase_progress # Linear decay from 1 to 0
             
     return np.clip(multiplier, 0.0, 1.0)
-
-
-# --- Optional: MoviePy availability (can be checked by worker if needed) ---
-# This is more for an initial UI warning if the main app imports this directly.
-# The worker thread will do its own more robust check if it intends to use MoviePy.
+# --- MoviePy Import and Availability Check ---
 try:
-    import moviepy.editor # Just to check if it's generally importable
+    import moviepy.editor 
 except ImportError as e:
     MOVIEPY_ERROR_MESSAGE_INIT = (
         f"WARNING: moviepy library not found. Output video may be silent if FFMPEG is not configured.\n\nDetails: {e}\n\n"
