@@ -79,27 +79,27 @@ class OpticalFlowZoomerWorker(QThread):
             is_video_input = input_ext in video_exts
 
             initial_pil_image_rgba = None # This will be the first frame (or the image itself)
+            video_frames = [] # List to hold all frames
 
             if is_video_input:
                 self.progress_update.emit("Reading video input...", 2)
-                # Using imageio for broader video format support
                 try:
                     vid_reader = imageio.get_reader(self.image_path)
-                    # Get the first frame. Consider if the whole video needs processing later.
-                    first_frame_np = vid_reader.get_data(0)
-                    initial_pil_image_rgba = Image.fromarray(first_frame_np).convert("RGBA")
-                    # fps_from_video = vid_reader.get_meta_data().get('fps', self.params["fps"])
-                    # self.params["fps"] = fps_from_video # Optionally override FPS with video's FPS
+                    for frame_np in vid_reader:
+                        pil_frame = Image.fromarray(frame_np).convert("RGBA")
+                        video_frames.append(pil_frame)
                     vid_reader.close()
                 except Exception as e:
                     self.finished.emit("", False, f"Error reading video input: {e}")
                     return
-                if not initial_pil_image_rgba:
-                    self.finished.emit("", False, "Could not extract first frame from video input.")
+                if not video_frames:
+                    self.finished.emit("", False, "Could not extract frames from video input.")
                     return
+                initial_pil_image_rgba = video_frames[0]
             else: # Static image input
                 try:
                     initial_pil_image_rgba = Image.open(self.image_path).convert("RGBA")
+                    video_frames = [initial_pil_image_rgba]
                 except Exception as e:
                     self.finished.emit("", False, f"Error opening image input: {e}")
                     return
@@ -121,7 +121,7 @@ class OpticalFlowZoomerWorker(QThread):
             # Call the animation logic
             # The logic module is responsible for handling cases where audio_filepath is None
             output_pil_frames_rgba = self.zoomer_logic.process_animation(
-                initial_pil_image_rgba, self.params, self.progress_update # Pass signal for progress
+                video_frames, self.params, self.progress_update # Pass list of frames
             )
 
             if not output_pil_frames_rgba:

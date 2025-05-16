@@ -50,7 +50,8 @@ except ModuleNotFoundError:
 
 
 class OpticalFlowZoomerLogic:
-    def process_animation(self, pil_initial_image_rgba, params, update_progress_signal):
+    def process_animation(self, input_frames_rgba, params, update_progress_signal):
+        # input_frames_rgba: list of PIL RGBA images (for video) or [single image] for static
         # --- Essential Parameters ---
         audio_filepath = params.get("audio_filepath") # Can be None
         fps = params.get("fps", 24)
@@ -103,6 +104,16 @@ class OpticalFlowZoomerLogic:
         breathing_min_hue_shift = params.get("breathing_min_hue_shift", 0.0) # 0.0 to 1.0
         breathing_max_hue_shift = params.get("breathing_max_hue_shift", 0.05) # e.g., 5% of hue circle
 
+        # Accept first frame for static image, or all frames for video
+        if isinstance(input_frames_rgba, list) and len(input_frames_rgba) > 1:
+            is_video = True
+            pil_initial_image_rgba = input_frames_rgba[0]
+            input_frames_list = input_frames_rgba
+        else:
+            is_video = False
+            pil_initial_image_rgba = input_frames_rgba[0] if isinstance(input_frames_rgba, list) else input_frames_rgba
+            input_frames_list = [pil_initial_image_rgba]
+
         if seed >= 0:
             random.seed(seed)
             np.random.seed(seed)
@@ -144,7 +155,7 @@ class OpticalFlowZoomerLogic:
 
 
         # Determine final number of frames for the video
-        num_total_video_frames = audio_derived_total_frames
+        num_total_video_frames = len(input_frames_list) if is_video else audio_derived_total_frames
         if override_num_frames > 0:
             num_total_video_frames = override_num_frames
         
@@ -211,8 +222,12 @@ class OpticalFlowZoomerLogic:
             progress_percentage = 25 + int(70 * frame_num / num_total_video_frames) if num_total_video_frames > 0 else 25
             update_progress_signal.emit(f"Generating frame {frame_num+1}/{num_total_video_frames}", progress_percentage)
 
-            # Start with a fresh copy of the initial RGB image for this frame's transformations
-            current_frame_pil_rgb = pil_initial_rgb.copy()
+            # For video: use the corresponding frame; for image: use initial
+            if is_video:
+                current_input_pil_rgba = input_frames_list[frame_num]
+                current_frame_pil_rgb = current_input_pil_rgba.convert('RGB')
+            else:
+                current_frame_pil_rgb = pil_initial_rgb.copy()
 
             # 1. Apply Breathing Effects (modifies current_frame_pil_rgb)
             if enable_breathing_effects and frame_num < len(breathing_envelope_per_frame):
