@@ -6,6 +6,12 @@ The Audio Reactive Video Animator is a Python-based application designed to crea
 
 This tool is perfect for musicians, visual artists, or anyone looking to create engaging visual content that pulses and warps in time with music or other audio.
 
+## User Interface Preview
+
+Here's a look at the main interface of the Audio Reactive Video Animator:
+
+![Screenshot of the Audio Reactive Video Animator UI](examples/ui_screenshot.png)
+
 ## Features
 
 * **Audio-Reactive Effects**:
