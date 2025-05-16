@@ -35,10 +35,9 @@ It is highly recommended to use a Python virtual environment to manage project d
 
 1.  **Clone the Repository**:
     ```bash
-    git clone [https://github.com/your-username/audio-reactive-video-animator.git](https://github.com/your-username/audio-reactive-video-animator.git)
+    git clone https://github.com/LamEmil/Audio-Reactive-Video-Animator.git
     cd audio-reactive-video-animator
     ```
-    (Replace `your-username/audio-reactive-video-animator` with your actual repository URL)
 
 2.  **Create and Activate a Virtual Environment**:
     * On Windows:
@@ -127,12 +126,5 @@ The project is organized into several Python modules:
     * The `Flow Calc Scale Factor` in the Peak/Flow Effects tab can significantly impact performance (lower values are faster but may reduce flow quality).
     * Ensure you have sufficient RAM and CPU resources.
 
-## Contributing
 
-Contributions, bug reports, and feature requests are welcome! Please feel free to open an issue or submit a pull request.
-
-*(Optional: Add sections like "Future Enhancements" or "License" (e.g., MIT License) here.)*
-
----
-
-Happy animating!
+Released under MIT liscence
